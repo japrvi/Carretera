@@ -1,6 +1,7 @@
 package cc.carretera;
 
 import java.util.HashMap;
+import java.util.PriorityQueue;
 
 import es.upm.babel.cclib.Monitor;
 
@@ -35,6 +36,7 @@ public class CarreteraMonitor implements Carretera {
   // cosnultas innecesarias
   private HashMap<String, Pos> posiciones;
   private int [] carrilesLibres;
+  private PriorityQueue<Car> coches_circulando;
 
   public CarreteraMonitor(int segmentos, int carriles) 
   {
@@ -43,6 +45,7 @@ public class CarreteraMonitor implements Carretera {
     mutex = new Monitor();
     espera = new Monitor.Cond[segmentos];
     posiciones = new HashMap<String, Pos>();
+    coches_circulando = new PriorityQueue<Car>((a, b) -> a.tks - b.tks);
     carretera = new Car[segmentos][carriles];
     carrilesLibres = new int [segmentos];
     //  Se separa la inicializacion en dos bloques tanto en cuanto la cantidad de 
@@ -58,20 +61,17 @@ public class CarreteraMonitor implements Carretera {
 
   public Pos entrar(String id, int tks) {
     mutex.enter();
-    print_state();
     if (carrilesLibres[0] == 0)
       espera[0].await();
     Car coche = new Car(id, tks, this.mutex);
     Pos res = asignar_posicion(0, coche);
-    //desbloqueo_espera(0);
-    print_state();
+    //desbloqueo_general();
     mutex.leave();
     return res;
   }
 
   public Pos avanzar(String id, int tks) {
     mutex.enter();
-    System.out.println(posiciones.toString());
     Pos pos = posiciones.get(id);
     int segmento = pos.getSegmento() - 1;
     int carril = pos.getCarril() - 1;
@@ -79,9 +79,8 @@ public class CarreteraMonitor implements Carretera {
       espera[segmento + 1].await();
     Car coche = new Car(id, tks, mutex);
     Pos asignar = asignar_posicion(segmento + 1, coche);
-    System.out.println(asignar.toString());
     eliminar_posicion(segmento, carril, id);
-    desbloqueo_espera(segmento);
+    desbloqueo_general();
     mutex.leave();
     return asignar;
   }
@@ -89,23 +88,26 @@ public class CarreteraMonitor implements Carretera {
   public void salir(String id) {
     mutex.enter();
     Pos posicion = posiciones.get(id);
-    int segmento = posicion.getSegmento();
-    int carril = posicion.getCarril();
-    if (segmento == this.segmentos -1)
-      desbloqueo_espera(segmento);
+    int segmento = posicion.getSegmento() - 1;
+    int carril = posicion.getCarril() - 1;
     eliminar_posicion(segmento, carril, id);
+    posiciones.remove(id);
+    desbloqueo_general();
     mutex.leave();
   }
   
   /*  */
   public void circulando(String id) {
     mutex.enter();
-    print_state();
     int segmento = posiciones.get(id).getSegmento() - 1;
     int carril = posiciones.get(id).getCarril() - 1;
     Car coche = carretera[segmento][carril];
     if (coche.tks > 0)
+    {
+      coches_circulando.add(coche);
       coche.circulando.await();
+    }
+    desbloqueo_general();
     mutex.leave();
   }
 
@@ -123,29 +125,63 @@ public class CarreteraMonitor implements Carretera {
       int tks = coche.tks;
       if (tks > 0)
         coche.tks--;
-      else
-        desbloqueo_circulando(coche);
-    }
+      }
+    desbloqueo_general();
     mutex.leave();
   }
-
-  private void desbloqueo_espera(int segmento)
+/* Funcion que administra el desbloqueo*/
+  private void desbloqueo_general()
   {
-    if (carrilesLibres[segmento] > 0)
-      espera[segmento].signal();
+    //desbloqueo_circulando()
+    if (desbloqueo_circulando() == false)
+    {
+      desbloqueo_avanzar();
+    }
   }
 
-  //  Funcion que desbloquea los coches que estan circulando.
-  //  Se chequea que no se cumple la CPRE y tambien que exista un coche bloqueado.
-  //  Solo puede haber un coche esperando mientrras circula al ser una cola asociada
-  //  a un coche. Al comprobarse en la función tks si este mayor que cero no sería necesario
-  //  verificar que se cumple la CPRE.
-  private void desbloqueo_circulando(Car coche)
+/*
+ * Funcion que desbloquea el coche que esta circulando en caso de que su tks sea 0
+ * Para ello comprueba en la cola con prioridad si el primer coche
+ * tiene tks == 0 extrae el coche de la cola y lo desbloquea
+ * En caso de que no haya coches en la cola no se hace nada 
+ * Se devuelve false siempe que no se desbloquee ningun coche
+*/
+  private boolean desbloqueo_circulando()
   {
-    int tks = coche.tks;
-    Monitor.Cond cond= coche.circulando;
-    if (tks == 0 && cond.waiting() > 0)
-      cond.signal();
+    boolean resultado = false;
+    if (!coches_circulando.isEmpty())
+    {
+      Car coche = coches_circulando.peek();
+      if (coche.tks == 0)
+      {
+        coche = coches_circulando.poll();
+        // Desbloquea el coche que esta circulando
+        coche.circulando.signal();
+        resultado = true;
+      }
+    }
+    return resultado;
+  }
+
+  /*
+   * Funcion que desbloquea el coche que quiere avanzar, comprueba si existen procesos
+   * bloqueados en cualquiera de los segmentos empezando por el último segmento
+   * Si se cumple la CPRE adecuada para ello se desbloquea y se se devuelve true
+   * En el otro caso se devuelve false
+   */
+  private boolean desbloqueo_avanzar()
+  {
+    boolean resultado = false;
+    for (int segmento = segmentos - 1; segmento >= 0 && !resultado; segmento--)
+    {
+      if (espera[segmento].waiting() > 0)
+      {
+        if (carrilesLibres[segmento] > 0)
+          espera[segmento].signal();
+        resultado = true;
+      }
+    }
+    return resultado;
   }
 
   //  Funcion que elimina el coche de la posición de manera que todas las estructuras
