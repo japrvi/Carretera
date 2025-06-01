@@ -285,15 +285,14 @@ public class CarreteraCSP implements Carretera, CSProcess {
             // Si no hay carriles libres, almacenar la petición
             peticionesEntrar.add(peticionEntrar);
           }
-          carretera.print_state();
-          System.out.println("Peticiones de entrar: " + peticionesEntrar.toString());
           break;
         case AVANZAR:
           PetAvanzar peticionAvanzar = (PetAvanzar) chAvanzar.in().read();
           Pos pos_coche = carretera.posiciones.get(peticionAvanzar.car);
-          if (carretera.carrilesLibres[pos_coche.getSegmento() - 1] > 0) {
+          System.out.println(pos_coche.toString());
+          if (carretera.carrilesLibres[pos_coche.getSegmento()] > 0) {
             // Si hay carriles libres, asignar posición
-            Car coche = new Car(peticionAvanzar.car, peticionAvanzar.tks);
+            Car coche = carretera.obtener_coche(peticionAvanzar.car);
             Pos posicion = carretera.asignar_posicion(pos_coche.getSegmento() - 1, coche);
             carretera.eliminar_posicion(pos_coche.getSegmento(), pos_coche.getCarril(), peticionAvanzar.car);
             peticionAvanzar.respuesta.out().write(posicion);
@@ -301,8 +300,6 @@ public class CarreteraCSP implements Carretera, CSProcess {
             // Si no hay carriles libres, almacenar la petición
             peticionesAvanzar.get(pos_coche.getSegmento() - 1).add(peticionAvanzar);
           }
-          carretera.print_state();
-          System.out.println("Peticiones de avanzar: " + peticionesAvanzar.toString());
           break;
         case SALIR:
           PetSalir peticionSalir = (PetSalir) chSalir.in().read();
@@ -311,8 +308,6 @@ public class CarreteraCSP implements Carretera, CSProcess {
               peticionSalir.car);
           carretera.posiciones.remove(peticionSalir.car);
           peticionSalir.respuesta.out().write(null);
-          carretera.print_state();
-          System.out.println("Peticiones de salir: " + carretera.posiciones.toString());
           break;
         case CIRCULANDO:
           PetCirculando peticionCirculando = (PetCirculando) chCirculando.in().read();
@@ -327,11 +322,15 @@ public class CarreteraCSP implements Carretera, CSProcess {
           }
           break;
         case 4:
-          PetTick peticion_tick = (PetTick) chCirculando.in().read();
+          PetTick peticion_tick = (PetTick) chTick.in().read();
           carretera.tick();
           peticion_tick.respuesta.out().write(null);
           break;
       }
+      carretera.print_state();
+      System.out.println("Estado de los coches circulando: " + coches_circulando.toString());
+      System.out.println("Peticiones de entrar: " + peticionesEntrar.toString());
+      System.out.println("Peticiones de avanzar: " + peticionesAvanzar.toString());
 
       /* Desbloquear aquellos coches que esten circulando y se cumple su CPRE */
       if (!coches_circulando.isEmpty()) {
