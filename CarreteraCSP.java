@@ -9,8 +9,6 @@ import java.util.Queue;
 
 import org.jcsp.lang.*;
 
-import cc.blockchain.BlockchainCSP.BlockChain;
-
 public class CarreteraCSP implements Carretera, CSProcess {
   // Ej. private Any2One chOp;
   private Any2OneChannel chAvanzar;
@@ -24,12 +22,10 @@ public class CarreteraCSP implements Carretera, CSProcess {
   class Car {
     String id;
     int tks;
-    boolean circulando;
 
-    Car(String id, int tks, boolean circulando) {
+    Car(String id, int tks) {
       this.id = id;
       this.tks = tks;
-      this.circulando = circulando;
     }
   }
 
@@ -153,10 +149,11 @@ public class CarreteraCSP implements Carretera, CSProcess {
     peticion.respuesta.in().read();
   }
 
-  public class Carretera{
+  public class Carretera {
     Car[][] carretera;
     int[] carrilesLibres;
-    HashMap<String, Pos> posiciones = new HashMap<String,Pos>();;
+    HashMap<String, Pos> posiciones = new HashMap<String, Pos>();;
+
     Carretera(int segmentos, int carriles) {
       this.carretera = new Car[segmentos][carriles];
       this.carrilesLibres = new int[segmentos];
@@ -167,36 +164,47 @@ public class CarreteraCSP implements Carretera, CSProcess {
         carrilesLibres[segmento] = carriles;
       }
     }
-    public void eliminar_posicion(int segmento, int carril, String id)
-    {
+
+    public Car obtener_coche(String id) {
+      Pos posicion = posiciones.get(id);
+      Car resultado = null;
+      if (posicion != null) {
+        resultado = carretera[posicion.getSegmento() - 1][posicion.getCarril() - 1];
+      }
+      return resultado;
+    }
+
+    public void eliminar_posicion(int segmento, int carril, String id) {
       carretera[segmento][carril] = null;
       carrilesLibres[segmento] = carrilesLibres[segmento] + 1;
     }
-    
-    /* Es una función auxiliar que hace mas facil de leer el codigo se devuelve null
-     * en caso de que no se pueda devolver una posicion pero esa parte del codigo deberia no
-     * ser alcanzable dado que en caso de no haber ningun carril libre se bloquearia la ejecucion
+
+    /*
+     * Es una función auxiliar que hace mas facil de leer el codigo se devuelve null
+     * en caso de que no se pueda devolver una posicion pero esa parte del codigo
+     * deberia no
+     * ser alcanzable dado que en caso de no haber ningun carril libre se bloquearia
+     * la ejecucion
      */
-    public Pos asignar_posicion(int segmento, Car coche)
-    {
-      Car [] segmento_carretera = carretera[segmento];
+    public Pos asignar_posicion(int segmento, Car coche) {
+      Car[] segmento_carretera = carretera[segmento];
       Pos posicion = null;
-      for (int carril=0; carril<carriles && posicion == null; carril++)
-      {
-        if (segmento_carretera[carril] == null)
-        {
+      for (int carril = 0; carril < carriles && posicion == null; carril++) {
+        if (segmento_carretera[carril] == null) {
           // Se asigna la posicion de la carretera
           segmento_carretera[carril] = coche;
-          // Se actualizan las estructuas de datos que permiten que modelizan el recurso y facilitan la busqueda
+          // Se actualizan las estructuas de datos que permiten que modelizan el recurso y
+          // facilitan la busqueda
           carrilesLibres[segmento] = carrilesLibres[segmento] - 1;
-          posicion =  new Pos(segmento + 1, carril + 1);
+          posicion = new Pos(segmento + 1, carril + 1);
           posiciones.put(coche.id, posicion);
         }
       }
       return posicion;
     }
-    public void tick()
-    {
+
+    public void tick() {
+      System.out.println("Tick de la carretera");
       for (String carId : posiciones.keySet()) {
         Pos pos = posiciones.get(carId);
         Car coche = carretera[pos.getSegmento() - 1][pos.getCarril() - 1];
@@ -205,20 +213,24 @@ public class CarreteraCSP implements Carretera, CSProcess {
         }
       }
     }
+
+    public void print_state() {
+      System.out.println("Estado de la carretera:");
+      System.out.println("Carriles libres por segmento: " + java.util.Arrays.toString(carrilesLibres));
+      System.out.println(posiciones.toString());
+    }
   }
 
   // Código del servidor
   public void run() {
-		
+
     // Definición de constantes para las operaciones
     final int ENTRAR = 0;
-		final int AVANZAR = 1;
-		final int SALIR = 2;
-		final int CIRCULANDO = 3;
+    final int AVANZAR = 1;
+    final int SALIR = 2;
+    final int CIRCULANDO = 3;
     final int TICK = 4;
-		One2OneChannel resp;
-    
-    
+
     final Guard[] guardas = new Guard[5];
     guardas[ENTRAR] = chEntrar.in();
     guardas[AVANZAR] = chAvanzar.in();
@@ -234,8 +246,8 @@ public class CarreteraCSP implements Carretera, CSProcess {
      * Que deben ser desencolados primero
      */
     PriorityQueue<Car> coches_circulando = new PriorityQueue<>((a, b) -> a.tks - b.tks);
-    /* Estructura de datos que permite obtener de manera rápida las posiciones ocupadas */
-    HashMap<String, Pos> posiciones = new HashMap<String,Pos>();;
+    /* Estructura de datos para asociar una peticion no atendida con un coche */
+    HashMap<String, PetCirculando> peticiones_circulando = new HashMap<>();
     /*
      * Estructura de datos para almacenar los coches que desean avanzar
      * en caso de que no haya carriles libres en el siguiente segmento.
@@ -257,6 +269,8 @@ public class CarreteraCSP implements Carretera, CSProcess {
     while (true) {
 
       int servicio = servicios.fairSelect();
+      System.out.println(servicio + " seleccionado");
+
 
       // TODO: ejecutar la operación solicitada por el cliente
       switch (servicio) {
@@ -264,19 +278,22 @@ public class CarreteraCSP implements Carretera, CSProcess {
           PetEntrar peticionEntrar = (PetEntrar) chEntrar.in().read();
           if (carretera.carrilesLibres[0] > 0) {
             // Si hay carriles libres, asignar posición
-            Car coche = new Car(peticionEntrar.car, peticionEntrar.tks, false);
+            Car coche = new Car(peticionEntrar.car, peticionEntrar.tks);
             Pos posicion = carretera.asignar_posicion(0, coche);
             peticionEntrar.respuesta.out().write(posicion);
           } else {
             // Si no hay carriles libres, almacenar la petición
             peticionesEntrar.add(peticionEntrar);
           }
+          carretera.print_state();
+          System.out.println("Peticiones de entrar: " + peticionesEntrar.toString());
+          break;
         case AVANZAR:
           PetAvanzar peticionAvanzar = (PetAvanzar) chAvanzar.in().read();
           Pos pos_coche = carretera.posiciones.get(peticionAvanzar.car);
           if (carretera.carrilesLibres[pos_coche.getSegmento() - 1] > 0) {
             // Si hay carriles libres, asignar posición
-            Car coche = new Car(peticionAvanzar.car, peticionAvanzar.tks, false);
+            Car coche = new Car(peticionAvanzar.car, peticionAvanzar.tks);
             Pos posicion = carretera.asignar_posicion(pos_coche.getSegmento() - 1, coche);
             carretera.eliminar_posicion(pos_coche.getSegmento(), pos_coche.getCarril(), peticionAvanzar.car);
             peticionAvanzar.respuesta.out().write(posicion);
@@ -284,32 +301,92 @@ public class CarreteraCSP implements Carretera, CSProcess {
             // Si no hay carriles libres, almacenar la petición
             peticionesAvanzar.get(pos_coche.getSegmento() - 1).add(peticionAvanzar);
           }
+          carretera.print_state();
+          System.out.println("Peticiones de avanzar: " + peticionesAvanzar.toString());
+          break;
         case SALIR:
           PetSalir peticionSalir = (PetSalir) chSalir.in().read();
           Pos pos_coche_salir = carretera.posiciones.get(peticionSalir.car);
-          carretera.eliminar_posicion(pos_coche_salir.getSegmento() - 1, pos_coche_salir.getCarril() - 1, peticionSalir.car);
+          carretera.eliminar_posicion(pos_coche_salir.getSegmento() - 1, pos_coche_salir.getCarril() - 1,
+              peticionSalir.car);
+          carretera.posiciones.remove(peticionSalir.car);
           peticionSalir.respuesta.out().write(null);
+          carretera.print_state();
+          System.out.println("Peticiones de salir: " + carretera.posiciones.toString());
           break;
         case CIRCULANDO:
           PetCirculando peticionCirculando = (PetCirculando) chCirculando.in().read();
           Pos pos_coche_circulando = carretera.posiciones.get(peticionCirculando.car);
-          Car coche_circulando = carretera.carretera[pos_coche_circulando.getSegmento() - 1][pos_coche_circulando.getCarril() - 1];
-          if (coche_circulando.tks >0)
-          {
+          Car coche_circulando = carretera.carretera[pos_coche_circulando.getSegmento() - 1][pos_coche_circulando
+              .getCarril() - 1];
+          if (coche_circulando.tks > 0) {
             coches_circulando.add(coche_circulando);
-          }
-          else
-          {
+            peticiones_circulando.put(peticionCirculando.car, peticionCirculando);
+          } else {
             peticionCirculando.respuesta.out().write(null);
           }
-          case TICK:
-            PetTick peticion_tick = (PetTick) chCirculando.in().read();
-            carretera.tick();
-            peticion_tick.respuesta.out().write(null);
+          break;
+        case 4:
+          PetTick peticion_tick = (PetTick) chCirculando.in().read();
+          carretera.tick();
+          peticion_tick.respuesta.out().write(null);
           break;
       }
 
-      // TODO: atender peticiones pendientes que puedan ser atendidas
+      /* Desbloquear aquellos coches que esten circulando y se cumple su CPRE */
+      if (!coches_circulando.isEmpty()) {
+        Car coche = coches_circulando.peek();
+        boolean extraer = true;
+        System.out.println("Coches circulando: " + coches_circulando.toString());
+        while (coche != null && extraer) {
+          if (coche.tks == 0) {
+            PetCirculando peticion = peticiones_circulando.get(coche.id);
+            peticion.respuesta.out().write(null);
+            coches_circulando.poll();
+            peticiones_circulando.remove(coche.id);
+          } else {
+            extraer = false;
+          }
+          coche = coches_circulando.peek();
+        }
+      }
+      // Peticiones de avanzar
+      if (!peticionesAvanzar.isEmpty()) {
+        // Comprobamos si hay carriles libres para cada segmento
+        for (int i = peticionesAvanzar.size() - 1; i > 0; i--) {
+          // Rellenamos con peticiones hasta que no queden carriles libres
+          int plibres = carretera.carrilesLibres[i];
+          Queue<PetAvanzar> peticiones = peticionesAvanzar.get(i);
+          System.out.println("Avanzar segemento " + i + " con carriles libres: " + plibres);
+          while (plibres > 0 && !peticiones.isEmpty()) {
+            PetAvanzar peticion = peticiones.peek();
+            if (peticion != null) {
+              // Si hay carriles libres, asignar posición
+              Car coche = carretera.obtener_coche(peticion.car);
+              Pos posicion = carretera.asignar_posicion(i, coche);
+              carretera.eliminar_posicion(i - 1, posicion.getCarril() - 1, peticion.car);
+              peticionesAvanzar.get(i).poll();
+              peticion.respuesta.out().write(posicion);
+              plibres--;
+              peticion = peticiones.peek();
+            }
+          }
+        }
+      }
+      if (!peticionesEntrar.isEmpty()) {
+        // Comprobamos si hay carriles libres en el primer segmento
+        if (carretera.carrilesLibres[0] > 0) {
+          PetEntrar peticion = peticionesEntrar.poll();
+          if (peticion != null) {
+            // Si hay carriles libres, asignar posición
+            Car coche = new Car(peticion.car, peticion.tks);
+            Pos posicion = carretera.asignar_posicion(0, coche);
+            peticion.respuesta.out().write(posicion);
+          }
+        }
+      }
+      System.out.println("Fin desbloqueo de coches circulando y peticiones pendientes");
     }
+    // TODO: atender peticiones pendientes que puedan ser atendida
   }
 }
