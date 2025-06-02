@@ -293,12 +293,14 @@ public class CarreteraCSP implements Carretera, CSProcess {
           if (carretera.carrilesLibres[pos_coche.getSegmento()] > 0) {
             // Si hay carriles libres, asignar posición
             Car coche = carretera.obtener_coche(peticionAvanzar.car);
-            Pos posicion = carretera.asignar_posicion(pos_coche.getSegmento() - 1, coche);
-            carretera.eliminar_posicion(pos_coche.getSegmento(), pos_coche.getCarril(), peticionAvanzar.car);
+            coche.tks = peticionAvanzar.tks;
+            Pos posicion = carretera.asignar_posicion(pos_coche.getSegmento(), coche);
+            carretera.eliminar_posicion(pos_coche.getSegmento() - 1, pos_coche.getCarril() - 1, peticionAvanzar.car);
             peticionAvanzar.respuesta.out().write(posicion);
           } else {
             // Si no hay carriles libres, almacenar la petición
-            peticionesAvanzar.get(pos_coche.getSegmento() - 1).add(peticionAvanzar);
+            Queue<PetAvanzar> lista = peticionesAvanzar.get(pos_coche.getSegmento());
+            lista.add(peticionAvanzar);
           }
           break;
         case SALIR:
@@ -312,8 +314,7 @@ public class CarreteraCSP implements Carretera, CSProcess {
         case CIRCULANDO:
           PetCirculando peticionCirculando = (PetCirculando) chCirculando.in().read();
           Pos pos_coche_circulando = carretera.posiciones.get(peticionCirculando.car);
-          Car coche_circulando = carretera.carretera[pos_coche_circulando.getSegmento() - 1][pos_coche_circulando
-              .getCarril() - 1];
+          Car coche_circulando = carretera.carretera[pos_coche_circulando.getSegmento() - 1][pos_coche_circulando.getCarril() - 1];
           if (coche_circulando.tks > 0) {
             coches_circulando.add(coche_circulando);
             peticiones_circulando.put(peticionCirculando.car, peticionCirculando);
@@ -329,6 +330,7 @@ public class CarreteraCSP implements Carretera, CSProcess {
       }
       carretera.print_state();
       System.out.println("Estado de los coches circulando: " + coches_circulando.toString());
+      System.out.println("El mapeo entre circulando y peticiones: " + peticiones_circulando.toString());
       System.out.println("Peticiones de entrar: " + peticionesEntrar.toString());
       System.out.println("Peticiones de avanzar: " + peticionesAvanzar.toString());
 
@@ -362,13 +364,15 @@ public class CarreteraCSP implements Carretera, CSProcess {
             if (peticion != null) {
               // Si hay carriles libres, asignar posición
               Car coche = carretera.obtener_coche(peticion.car);
-              Pos posicion = carretera.asignar_posicion(i, coche);
-              carretera.eliminar_posicion(i - 1, posicion.getCarril() - 1, peticion.car);
+              Pos pos_coche = carretera.posiciones.get(peticion.car);
+              Pos posicion = carretera.asignar_posicion(pos_coche.getSegmento(), coche);
+              carretera.eliminar_posicion(pos_coche.getSegmento() - 1, pos_coche.getCarril() - 1, peticion.car);
+              coche.tks = peticion.tks;
               peticionesAvanzar.get(i).poll();
               peticion.respuesta.out().write(posicion);
-              plibres--;
               peticion = peticiones.peek();
             }
+            plibres--;
           }
         }
       }
